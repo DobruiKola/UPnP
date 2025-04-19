@@ -1,24 +1,13 @@
 package xyz.necrozma.upnp;
 
 import dev.dejvokep.boostedyaml.route.Route;
-import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.plugin.java.annotation.plugin.ApiVersion;
-import org.bukkit.plugin.java.annotation.plugin.Description;
-import org.bukkit.plugin.java.annotation.plugin.Plugin;
-import org.bukkit.plugin.java.annotation.plugin.Website;
-import org.bukkit.plugin.java.annotation.plugin.author.Author;
+import net.fabricmc.api.ModInitializer;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import org.bitlet.weupnp.GatewayDevice;
-import org.bstats.bukkit.Metrics;
-
-import java.util.Objects;
+import org.bstats.fabric.Metrics;  // Метрики для Fabric
 import java.util.Set;
 
-@Plugin(name="UPnP", version="1.9.1")
-@Description("A Plugin to open UPNP ports for your Minecraft server")
-@Author("necrozma")
-@Website("necrozma.xyz")
-@ApiVersion(ApiVersion.Target.v1_20)
-public final class Main extends JavaPlugin {
+public class Main implements ModInitializer {
 
     private GatewayDevice gatewayDevice;
     private Set<Integer> tcpPorts;
@@ -26,38 +15,40 @@ public final class Main extends JavaPlugin {
     private boolean shouldRemovePortsOnStop;
 
     @Override
-    public void onEnable() {
-        Config configManager = Config.getInstance(this);
+    public void onInitialize() {
+        Config configManager = Config.getInstance();
 
-        // Enable metrics if configured
+        // Включаем метрики, если это настроено в конфиге
         if (configManager.getBoolean(Route.from("bstats"))) {
             int pluginId = 20515;
-            new Metrics(this, pluginId);
-            getLogger().info("Enabled Metrics");
+            new Metrics(this, pluginId); // Для Fabric
+            System.out.println("[UPNP] Метрики включены");
         } else {
-            getLogger().info("Disabling bstats because of config");
+            System.out.println("[UPNP] Отключаем bstats согласно конфигу");
         }
 
         shouldRemovePortsOnStop = configManager.getBoolean(Route.from("close-ports-on-stop"));
 
-        // Parse TCP and UDP ports separately
-        tcpPorts = UPnPUtils.parsePorts(configManager, "tcp", this);
-        udpPorts = UPnPUtils.parsePorts(configManager, "udp", this);
+        // Разбираем TCP и UDP порты отдельно
+        tcpPorts = UPnPUtils.parsePorts(configManager, "tcp");
+        udpPorts = UPnPUtils.parsePorts(configManager, "udp");
 
-        // Discover gateway and map ports
-        gatewayDevice = UPnPUtils.discoverGateway(this);
+        // Осуществляем поиск шлюза и открываем порты
+        gatewayDevice = UPnPUtils.discoverGateway();
         if (gatewayDevice != null) {
-            UPnPUtils.mapPorts(gatewayDevice, tcpPorts, udpPorts, this);
+            UPnPUtils.mapPorts(gatewayDevice, tcpPorts, udpPorts);
         }
 
+        // Регистрируем событие для остановки сервера
+        ServerLifecycleEvents.SERVER_STOPPING.register(this::onServerStopping);
     }
 
-    @Override
-    public void onDisable() {
-        getLogger().info("UPnP service stopping...");
+    // Метод, который вызывается при остановке сервера
+    private void onServerStopping(net.minecraft.server.MinecraftServer server) {
+        System.out.println("[UPNP] Остановка UPnP сервиса...");
         if (shouldRemovePortsOnStop && gatewayDevice != null) {
-            UPnPUtils.closeMappedPorts(gatewayDevice, tcpPorts, "TCP", this);
-            UPnPUtils.closeMappedPorts(gatewayDevice, udpPorts, "UDP", this);
+            UPnPUtils.closeMappedPorts(gatewayDevice, tcpPorts, "TCP", null);
+            UPnPUtils.closeMappedPorts(gatewayDevice, udpPorts, "UDP", null);
         }
     }
 
