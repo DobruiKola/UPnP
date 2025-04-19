@@ -4,7 +4,6 @@ import dev.dejvokep.boostedyaml.route.Route;
 import org.bitlet.weupnp.GatewayDevice;
 import org.bitlet.weupnp.GatewayDiscover;
 import org.bitlet.weupnp.PortMappingEntry;
-import org.bukkit.plugin.java.JavaPlugin;
 import org.xml.sax.SAXException;
 
 import javax.xml.parsers.ParserConfigurationException;
@@ -14,7 +13,7 @@ import java.util.Set;
 
 public class UPnPUtils {
 
-    public static Set<Integer> parsePorts(Config configManager, String type, JavaPlugin plugin) {
+    public static Set<Integer> parsePorts(Config configManager, String type) {
         Set<Integer> uniqueValidPorts = new HashSet<>();
         String portsString = configManager.getString(Route.from("ports", type));
         if (portsString != null) {
@@ -24,10 +23,10 @@ public class UPnPUtils {
                     if (isPortValid(portNumber)) {
                         uniqueValidPorts.add(portNumber);
                     } else {
-                        plugin.getLogger().severe("Port number out of range: " + portNumber);
+                        System.err.println("[UPNP] Порт вне допустимого диапазона: " + portNumber);
                     }
                 } catch (NumberFormatException e) {
-                    plugin.getLogger().severe("Invalid port number: " + port);
+                    System.err.println("[UPNP] Неверный порт: " + port);
                 }
             }
         }
@@ -38,60 +37,61 @@ public class UPnPUtils {
         return port >= 0 && port <= 65535;
     }
 
-    public static GatewayDevice discoverGateway(JavaPlugin plugin) {
+    public static GatewayDevice discoverGateway() {
         try {
             GatewayDiscover discover = new GatewayDiscover();
-            plugin.getLogger().info("Looking for Gateway Devices");
+            System.out.println("[UPNP] Поиск шлюзов...");
             discover.discover();
+
             GatewayDevice gatewayDevice = discover.getValidGateway();
             if (gatewayDevice != null) {
-                plugin.getLogger().info("Found gateway device: " + gatewayDevice.getModelName() + " " + gatewayDevice.getModelDescription());
-                plugin.getLogger().info("Using local address: " + gatewayDevice.getLocalAddress());
-                plugin.getLogger().info("External address: " + gatewayDevice.getExternalIPAddress());
+                System.out.println("[UPNP] Найден шлюз: " + gatewayDevice.getModelName() + " - " + gatewayDevice.getModelDescription());
+                System.out.println("[UPNP] Локальный адрес: " + gatewayDevice.getLocalAddress());
+                System.out.println("[UPNP] Внешний IP: " + gatewayDevice.getExternalIPAddress());
             } else {
-                plugin.getLogger().info("No valid gateway device found.");
+                System.out.println("[UPNP] Не найдено допустимых шлюзов.");
             }
             return gatewayDevice;
         } catch (IOException | SAXException | ParserConfigurationException e) {
-            plugin.getLogger().severe("Error while discovering gateway: " + e.getLocalizedMessage());
+            System.err.println("[UPNP] Ошибка при поиске шлюза: " + e.getLocalizedMessage());
             return null;
         }
     }
 
-    public static void mapPorts(GatewayDevice gatewayDevice, Set<Integer> tcpPorts, Set<Integer> udpPorts, JavaPlugin plugin) {
-        tcpPorts.forEach(port -> mapPort(gatewayDevice, port, "TCP", plugin));
-        udpPorts.forEach(port -> mapPort(gatewayDevice, port, "UDP", plugin));
+    public static void mapPorts(GatewayDevice gatewayDevice, Set<Integer> tcpPorts, Set<Integer> udpPorts) {
+        tcpPorts.forEach(port -> mapPort(gatewayDevice, port, "TCP"));
+        udpPorts.forEach(port -> mapPort(gatewayDevice, port, "UDP"));
     }
 
-    private static void mapPort(GatewayDevice gatewayDevice, int port, String protocol, JavaPlugin plugin) {
+    private static void mapPort(GatewayDevice gatewayDevice, int port, String protocol) {
         try {
-            plugin.getLogger().info("Opening " + protocol + " port " + port);
+            System.out.println("[UPNP] Открытие порта " + port + " по " + protocol);
             PortMappingEntry portMapping = new PortMappingEntry();
             if (gatewayDevice.getSpecificPortMappingEntry(port, protocol, portMapping)) {
-                plugin.getLogger().info("Port " + port + " is already mapped. Skipping.");
+                System.out.println("[UPNP] Порт " + port + " уже проброшен, пропускаем.");
             } else {
-                addPortMapping(gatewayDevice, port, protocol, plugin);
+                addPortMapping(gatewayDevice, port, protocol);
             }
         } catch (IOException | SAXException e) {
-            plugin.getLogger().severe("Error while mapping " + protocol + " port " + port + ": " + e.getLocalizedMessage());
+            System.err.println("[UPNP] Ошибка при пробросе " + protocol + " порта " + port + ": " + e.getLocalizedMessage());
         }
     }
 
-    private static void addPortMapping(GatewayDevice gatewayDevice, int port, String protocol, JavaPlugin plugin) throws IOException, SAXException {
-        if (gatewayDevice.addPortMapping(port, port, gatewayDevice.getLocalAddress().getHostAddress(), protocol, "Port forwarded by UPnP plugin")) {
-            plugin.getLogger().info(protocol + " port mapping successful for port " + port);
+    private static void addPortMapping(GatewayDevice gatewayDevice, int port, String protocol) throws IOException, SAXException {
+        if (gatewayDevice.addPortMapping(port, port, gatewayDevice.getLocalAddress().getHostAddress(), protocol, "Fabric UPnP Mod")) {
+            System.out.println("[UPNP] Успешно проброшен " + protocol + " порт " + port);
         } else {
-            plugin.getLogger().info(protocol + " port mapping attempt failed for port " + port);
+            System.out.println("[UPNP] Не удалось пробросить " + protocol + " порт " + port);
         }
     }
 
-    public static void closeMappedPorts(GatewayDevice gatewayDevice, Set<Integer> ports, String protocol, JavaPlugin plugin) {
+    public static void closeMappedPorts(GatewayDevice gatewayDevice, Set<Integer> ports, String protocol) {
         for (int port : ports) {
             try {
                 gatewayDevice.deletePortMapping(port, protocol);
-                plugin.getLogger().info(protocol + " Port " + port + " closed for UPnP");
+                System.out.println("[UPNP] Закрыт порт " + port + " по протоколу " + protocol);
             } catch (IOException | SAXException e) {
-                plugin.getLogger().severe("Error while closing " + protocol + " port " + port + " for UPnP: " + e.getLocalizedMessage());
+                System.err.println("[UPNP] Ошибка при закрытии " + protocol + " порта " + port + ": " + e.getLocalizedMessage());
             }
         }
     }
